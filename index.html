@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>政治家タイプ診断 — 三軸オクタント分析</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;400;600;700&family=DM+Mono:wght@300;400;500&display=swap');
+
+  :root {
+    --bg:        #0d0d0f;
+    --surface:   #141418;
+    --border:    #2a2a35;
+    --gold:      #c9a84c;
+    --gold-dim:  #7a6330;
+    --amber:     #e8831a;
+    --text:      #e8e4dc;
+    --text-dim:  #7a7870;
+    --axis-x:    #e05252;
+    --axis-y:    #52b0e0;
+    --axis-z:    #52e09a;
+    --panel-w:   340px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Serif JP', serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  /* ── HEADER ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    z-index: 10;
+  }
+  .logo {
+    font-size: 13px;
+    letter-spacing: .2em;
+    color: var(--gold);
+    font-family: 'DM Mono', monospace;
+    font-weight: 300;
+  }
+  header h1 {
+    font-size: 15px;
+    font-weight: 400;
+    letter-spacing: .15em;
+    color: var(--text);
+  }
+  .axis-legend {
+    display: flex;
+    gap: 16px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+  }
+  .axis-legend span { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ── LAYOUT ── */
+  .main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+
+  /* ── 3D CANVAS AREA ── */
+  #canvas-wrap {
+    width: 100%;
+    height: 360px;
+    position: relative;
+    cursor: grab;
+    flex-shrink: 0;
+  }
+  #canvas-wrap:active { cursor: grabbing; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  /* ── PANEL (スライダー・診断結果など) ── */
+  .panel {
+    width: 100%;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (min-width: 720px) {
+    .main { flex-direction: row; }
+    #canvas-wrap { flex: 1; height: auto; }
+    .panel {
+      width: var(--panel-w);
+      border-top: none;
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      max-height: calc(100vh - 60px);
+    }
+  }
+
+  .panel-section {
+    padding: 20px 22px;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-section h2 {
+    font-size: 10px;
+    letter-spacing: .25em;
+    color: var(--gold);
+    font-family: 'DM Mono', monospace;
+    font-weight: 500;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  /* SLIDERS */
+  .slider-row {
+    margin-bottom: 18px;
+  }
+  .slider-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .slider-label .axis-name {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .05em;
+  }
+  .slider-label .axis-val {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    color: var(--gold);
+  }
+  .slider-desc {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 7px;
+    line-height: 1.5;
+  }
+  .slider-endpoints {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: var(--text-dim);
+    font-family: 'DM Mono', monospace;
+    margin-bottom: 4px;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 3px;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range].x-axis { background: linear-gradient(to right, #1a0a0a, var(--axis-x)); }
+  input[type=range].y-axis { background: linear-gradient(to right, #0a1020, var(--axis-y)); }
+  input[type=range].z-axis { background: linear-gradient(to right, #0a1a10, var(--axis-z)); }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--gold);
+    border: 2px solid var(--bg);
+    box-shadow: 0 0 6px rgba(201,168,76,.5);
+  }
+
+  /* RESULT CARD */
+  .result-card {
+    background: #0a0a0d;
+    border: 1px solid var(--gold-dim);
+    border-radius: 4px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .result-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(201,168,76,.04) 0%, transparent 60%);
+  }
+  .result-type {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    color: var(--gold);
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+  .result-coords {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .result-desc {
+    font-size: 11px;
+    color: var(--text);
+    line-height: 1.8;
+    opacity: .85;
+  }
+  .result-examples {
+    margin-top: 10px;
+    font-size: 10px;
+    color: var(--amber);
+    font-family: 'DM Mono', monospace;
+    line-height: 1.6;
+  }
+
+  /* AXIS DEFINITION */
+  .def-item {
+    margin-bottom: 14px;
+  }
+  .def-axis {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 5px;
+  }
+  .def-bar {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    font-family: 'DM Mono', monospace;
+    padding: 4px 8px;
+    border-radius: 3px;
+    margin-bottom: 4px;
+  }
+  .def-bar.x { background: rgba(224,82,82,.1); color: var(--axis-x); }
+  .def-bar.y { background: rgba(82,176,224,.1); color: var(--axis-y); }
+  .def-bar.z { background: rgba(82,224,154,.1); color: var(--axis-z); }
+  .def-text {
+    font-size: 10px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  /* OCTANT LIST */
+  .oct-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .oct-cell {
+    padding: 8px 10px;
+    background: #0a0a0d;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  .oct-cell:hover { border-color: var(--gold-dim); background: #141410; }
+  .oct-cell.active { border-color: var(--gold); background: #1a1a10; }
+  .oct-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+  }
+  .oct-name {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.3;
+    margin: 2px 0;
+  }
+  .oct-xyz {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    color: var(--gold-dim);
+  }
+
+  /* ROTATE HINT */
+  .hint {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    pointer-events: none;
+    line-height: 1.7;
+  }
+
+  /* scrollbar */
+  .panel::-webkit-scrollbar { width: 4px; }
+  .panel::-webkit-scrollbar-track { background: var(--surface); }
+  .panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">POLITICIAN TYPE / OCTANT</span>
+  <h1>政治家タイプ診断 — 三軸分類モデル</h1>
+  <div class="axis-legend">
+    <span><i class="dot" style="background:var(--axis-x)"></i>X: 利害調整</span>
+    <span><i class="dot" style="background:var(--axis-y)"></i>Y: 政治信念</span>
+    <span><i class="dot" style="background:var(--axis-z)"></i>Z: 社会受容性</span>
+  </div>
+</header>
+
+<div class="main">
+  <div id="canvas-wrap">
+    <canvas id="c"></canvas>
+    <div class="hint">ドラッグ: 回転　　ホイール: ズーム<br>点をクリック: 象限詳細</div>
+  </div>
+
+  <div class="panel">
+
+    <!-- SLIDERS -->
+    <div class="panel-section">
+      <h2>スコア入力</h2>
+
+      <div class="slider-row">
+        <div class="slider-label">
+          <span class="axis-name" style="color:var(--axis-x)">X — 利害調整力</span>
+          <span class="axis-val" id="vx">0.0</span>
+        </div>
+        <div class="slider-desc">異なる利益・価値観を持つ主体間の摩擦を低減し、合意を形成する能力。</div>
+        <div class="slider-endpoints"><span>−1 対立煽動</span><span>+1 高度合意形成</span></div>
+        <input id="sx" type="range" class="x-axis" min="-100" max="100" value="50" oninput="update()">
+      </div>
+
+      <div class="slider-row">
+        <div class="slider-label">
+          <span class="axis-name" style="color:var(--axis-y)">Y — 政治信念強度</span>
+          <span class="axis-val" id="vy">0.0</span>
+        </div>
+        <div class="slider-desc">理念・イデオロギー・理想社会観に基づく一貫した政策志向の強さ。</div>
+        <div class="slider-endpoints"><span>−1 信念なき追随</span><span>+1 強固な理想追求</span></div>
+        <input id="sy" type="range" class="y-axis" min="-100" max="100" value="50" oninput="update()">
+      </div>
+
+      <div class="slider-row">
+        <div class="slider-label">
+          <span class="axis-name" style="color:var(--axis-z)">Z — 社会受容性</span>
+          <span class="axis-val" id="vz">0.0</span>
+        </div>
+        <div class="slider-desc">政策・言説が現実社会の多数に受容・共感されている度合い。</div>
+        <div class="slider-endpoints"><span>−1 社会との乖離</span><span>+1 高い現場適合</span></div>
+        <input id="sz" type="range" class="z-axis" min="-100" max="100" value="50" oninput="update()">
+      </div>
+    </div>
+
+    <!-- RESULT -->
+    <div class="panel-section">
+      <h2>診断結果</h2>
+      <div class="result-card">
+        <div class="result-type" id="rtype">—</div>
+        <div class="result-coords" id="rcoords">( x, y, z )</div>
+        <div class="result-desc" id="rdesc">スライダーを動かしてください。</div>
+        <div class="result-examples" id="rexamples"></div>
+      </div>
+    </div>
+
+    <!-- AXIS DEFINITION -->
+    <div class="panel-section">
+      <h2>軸定義</h2>
+      <div class="def-item">
+        <div class="def-axis"><i class="dot" style="background:var(--axis-x)"></i>X：利害調整</div>
+        <div class="def-bar x"><span>−1: 対立煽動・合意拒絶</span><span>+1: 多元的合意形成</span></div>
+        <div class="def-text">「政治の技術」としての調整力。異なる利益集団・価値観・地域間の摩擦を低減し、持続可能な合意を導く能力。ゼロは「調整の試みはあるが機能不全」。</div>
+      </div>
+      <div class="def-item">
+        <div class="def-axis"><i class="dot" style="background:var(--axis-y)"></i>Y：政治信念</div>
+        <div class="def-bar y"><span>−1: 信念なき日和見</span><span>+1: 理想の強固な追求</span></div>
+        <div class="def-text">イデオロギー・倫理・規範に根差した一貫性の強さ。高いほど「思想の純度」が高く妥協しにくい。低いほど情勢追随型となる。</div>
+      </div>
+      <div class="def-item">
+        <div class="def-axis"><i class="dot" style="background:var(--axis-z)"></i>Z：社会受容性</div>
+        <div class="def-bar z"><span>−1: 乖離・孤立・浮世離れ</span><span>+1: 共感・現場適合</span></div>
+        <div class="def-text">政策言説が現実の市井の声・生活感覚・世論と一致している度合い。「国民の声に根ざした理想か」を測定する。民意追従とは異なり、構造的共鳴を問う。</div>
+      </div>
+    </div>
+
+    <!-- OCTANT LIST -->
+    <div class="panel-section">
+      <h2>全８象限</h2>
+      <div class="oct-grid" id="octGrid"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════
+//  OCTANT DEFINITIONS
+// ═══════════════════════════════════════
+const OCTANTS = [
+  {
+    id: 0, signs: [1,1,1],
+    name: '合意形成型理想主義',
+    nameEn: 'Visionary Broker',
+    desc: '強固な政治信念を持ちつつ、社会との対話を通じて理想を現実に着地させる。調整と理想が両立した最も安定したタイプ。民主主義の「完成形」に近い。',
+    examples: '▸ 高い理想、丁寧な根回し、世論との共鳴'
+  },
+  {
+    id: 1, signs: [-1,1,1],
+    name: '先導的啓蒙家',
+    nameEn: 'Enlightened Disruptor',
+    desc: '理想が社会に広く浸透しているが、既存の利害構造とは対立関係にある。「正しい摩擦」を意図的に引き受けることで変革を牽引する。',
+    examples: '▸ 民意を背景に体制と対決する改革派'
+  },
+  {
+    id: 2, signs: [-1,1,-1],
+    name: '孤高の革命家',
+    nameEn: 'Isolated Revolutionary',
+    desc: '強い信念を持つが社会からは乖離しており、合意形成も拒絶する。純粋な思想的一貫性は高いが、現実政治での実効性は低い。',
+    examples: '▸ 時代に先行しすぎた思想家型政治家'
+  },
+  {
+    id: 3, signs: [1,1,-1],
+    name: '空転する理想主義者',
+    nameEn: 'Disconnected Idealist',
+    desc: '調整能力と強い信念を持つが、社会の現実感覚から断絶している。政策は精緻だが「エリートの自己完結」に陥りやすい。',
+    examples: '▸ テクノクラート的理想家、官僚出身の改革派'
+  },
+  {
+    id: 4, signs: [1,-1,1],
+    name: '共感的実務家',
+    nameEn: 'Empathic Pragmatist',
+    desc: '強固な信念はないが、民意を丁寧に拾いながら実務的調整を行う。安定した政治運営者。「理想の欠如」は批判されやすいが、現場摩擦は最小。',
+    examples: '▸ 地方の調整型首長、民意敏感な与党幹部'
+  },
+  {
+    id: 5, signs: [-1,-1,1],
+    name: '迎合的ポピュリスト',
+    nameEn: 'Opportunist Populist',
+    desc: '信念を持たず、社会の感情を政治資源として利用しながら調整機能を破壊する。短期的な人気と長期的な社会不安定化を同時にもたらす最も危険なタイプ。',
+    examples: '▸ 感情動員型、SNS政治、分断の扇動者'
+  },
+  {
+    id: 6, signs: [-1,-1,-1],
+    name: '混乱の扇動者',
+    nameEn: 'Agent of Chaos',
+    desc: '信念も調整能力もなく、社会との接点もない。ニヒリズム的破壊者。政治的真空や腐敗した体制の末期に出現する。',
+    examples: '▸ 体制崩壊期の機会主義的扇動家'
+  },
+  {
+    id: 7, signs: [1,-1,-1],
+    name: '無機質な管理者',
+    nameEn: 'Bureaucratic Automaton',
+    desc: '理想も民意との共鳴もなく、ただ手続き的調整のみを行う。体制の「歯車」として機能するが、政治の意義を失わせる。',
+    examples: '▸ 官僚的政治家、派閥維持に徹する調整屋'
+  }
+];
+
+// ═══════════════════════════════════════
+//  OCTANT GRID BUILD
+// ═══════════════════════════════════════
+const grid = document.getElementById('octGrid');
+OCTANTS.forEach(o => {
+  const c = document.createElement('div');
+  c.className = 'oct-cell';
+  c.id = `oc${o.id}`;
+  c.innerHTML = `
+    <div class="oct-num">象限 ${o.id+1}</div>
+    <div class="oct-name">${o.name}</div>
+    <div class="oct-xyz">(${o.signs.map(s=>s>0?'+':'-').join(',')})</div>
+  `;
+  c.onclick = () => jumpToOctant(o);
+  grid.appendChild(c);
+});
+
+// ═══════════════════════════════════════
+//  3D RENDERER (pure canvas)
+// ═══════════════════════════════════════
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H;
+let rotX = 0.38, rotY = -0.6;
+let zoom = 1;
+let dragging = false, lastMX, lastMY;
+
+function resize() {
+  const wrap = document.getElementById('canvas-wrap');
+  W = canvas.width  = wrap.clientWidth  * devicePixelRatio;
+  H = canvas.height = wrap.clientHeight * devicePixelRatio;
+  canvas.style.width  = wrap.clientWidth  + 'px';
+  canvas.style.height = wrap.clientHeight + 'px';
+  draw();
+}
+window.addEventListener('resize', resize);
+
+// project 3d → 2d
+function project([x, y, z]) {
+  // rotate Y
+  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+  const x1 = x * cosY - z * sinY;
+  const z1 = x * sinY + z * cosY;
+  // rotate X
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  const y1 = y * cosX - z1 * sinX;
+  const z2 = y * sinX + z1 * cosX;
+  const scale = zoom * Math.min(W, H) * 0.28;
+  const fov = 4 / (4 + z2);
+  return [W/2 + x1 * scale * fov, H/2 - y1 * scale * fov, z2];
+}
+
+function line3(a, b, color, alpha=1, lw=1) {
+  const [ax,ay] = project(a);
+  const [bx,by] = project(b);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lw * devicePixelRatio;
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(bx, by);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function dot3(pos, r, fillColor, strokeColor, alpha=1) {
+  const [px, py] = project(pos);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.arc(px, py, r * devicePixelRatio, 0, Math.PI*2);
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+  if (strokeColor) {
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 1.5 * devicePixelRatio;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function text3(pos, str, color, size=11, alpha=1, align='center') {
+  const [px, py] = project(pos);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.font = `${size * devicePixelRatio}px "DM Mono", monospace`;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(str, px, py);
+  ctx.restore();
+}
+
+// octant node positions (unit cube corners)
+const NODES = OCTANTS.map(o => o.signs.map(s => s * 0.72));
+
+// current user point
+let curPt = [0.5, 0.5, 0.5];
+
+function currentOctant() {
+  const [x,y,z] = curPt;
+  return OCTANTS.find(o =>
+    Math.sign(x || .001) === o.signs[0] &&
+    Math.sign(y || .001) === o.signs[1] &&
+    Math.sign(z || .001) === o.signs[2]
+  ) || OCTANTS[0];
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // background gradient
+  const bg = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H)*0.7);
+  bg.addColorStop(0, '#131318');
+  bg.addColorStop(1, '#0a0a0c');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // grid floor
+  const gr = 0.72;
+  for (let i = -1; i <= 1; i++) {
+    line3([-gr, -gr, i*gr], [gr, -gr, i*gr], '#1e1e28', 0.5);
+    line3([i*gr, -gr, -gr], [i*gr, -gr, gr], '#1e1e28', 0.5);
+  }
+
+  // octant dividing planes (faint)
+  const planes = [
+    [[-gr,0,-gr],[gr,0,-gr],[gr,0,gr],[-gr,0,gr]], // xz @ y=0
+    [[0,-gr,-gr],[0,gr,-gr],[0,gr,gr],[0,-gr,gr]],  // yz @ x=0
+    [[-gr,-gr,0],[gr,-gr,0],[gr,gr,0],[-gr,gr,0]],  // xy @ z=0
+  ];
+  const planeColors = ['rgba(82,176,224,0.04)','rgba(224,82,82,0.04)','rgba(82,224,154,0.04)'];
+  planes.forEach((plane, pi) => {
+    const pts = plane.map(project);
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    pts.slice(1).forEach(p => ctx.lineTo(p[0], p[1]));
+    ctx.closePath();
+    ctx.fillStyle = planeColors[pi];
+    ctx.fill();
+    ctx.restore();
+  });
+
+  // cube edges
+  const edges = [
+    // bottom
+    [[-1,-1,-1],[ 1,-1,-1]],[[ 1,-1,-1],[ 1,-1, 1]],[[ 1,-1, 1],[-1,-1, 1]],[[-1,-1, 1],[-1,-1,-1]],
+    // top
+    [[-1, 1,-1],[ 1, 1,-1]],[[ 1, 1,-1],[ 1, 1, 1]],[[ 1, 1, 1],[-1, 1, 1]],[[-1, 1, 1],[-1, 1,-1]],
+    // verticals
+    [[-1,-1,-1],[-1, 1,-1]],[[ 1,-1,-1],[ 1, 1,-1]],[[ 1,-1, 1],[ 1, 1, 1]],[[-1,-1, 1],[-1, 1, 1]]
+  ].map(e => e.map(v => v.map(c => c*gr)));
+  edges.forEach(([a,b]) => line3(a, b, '#2a2a40', 0.6, 0.8));
+
+  // axes
+  const AL = gr * 1.35;
+  line3([0,0,0],[AL,0,0], '#e05252', 0.9, 1.5);
+  line3([0,0,0],[0,AL,0], '#52b0e0', 0.9, 1.5);
+  line3([0,0,0],[0,0,AL], '#52e09a', 0.9, 1.5);
+  line3([0,0,0],[-AL,0,0],'#e05252', 0.3, 0.8);
+  line3([0,0,0],[0,-AL,0],'#52b0e0', 0.3, 0.8);
+  line3([0,0,0],[0,0,-AL],'#52e09a', 0.3, 0.8);
+
+  // axis labels
+  text3([AL+.08,0,0], 'X+', '#e05252', 11);
+  text3([-AL-.08,0,0], 'X−', '#e05252', 9, .5);
+  text3([0,AL+.08,0], 'Y+', '#52b0e0', 11);
+  text3([0,-AL-.08,0], 'Y−', '#52b0e0', 9, .5);
+  text3([0,0,AL+.08], 'Z+', '#52e09a', 11);
+  text3([0,0,-AL-.08], 'Z−', '#52e09a', 9, .5);
+
+  // octant nodes
+  const activeOct = currentOctant();
+  OCTANTS.forEach((o, i) => {
+    const pos = NODES[i];
+    const isActive = o.id === activeOct.id;
+    const r = isActive ? 9 : 5;
+    const fill = isActive ? '#c9a84c' : '#2a2a40';
+    const stroke = isActive ? '#e8c46a' : '#4a4a60';
+    dot3(pos, r, fill, stroke, isActive ? 1 : 0.7);
+    if (isActive) {
+      // glow
+      const [px,py] = project(pos);
+      const glow = ctx.createRadialGradient(px,py,0,px,py,20*devicePixelRatio);
+      glow.addColorStop(0, 'rgba(201,168,76,0.25)');
+      glow.addColorStop(1, 'rgba(201,168,76,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(px, py, 20*devicePixelRatio, 0, Math.PI*2);
+      ctx.fill();
+    }
+  });
+
+  // user point
+  const [ux,uy,uz] = curPt;
+  dot3([ux,uy,uz], 7, '#e8831a', '#ffb055', 1);
+  // projection lines to planes
+  line3([ux,uy,uz],[ux,-gr,uz], '#e8831a', 0.18, 0.7);
+  line3([ux,uy,uz],[-gr,uy,uz], '#e05252', 0.18, 0.7);
+  line3([ux,uy,uz],[ux,uy,-gr], '#52e09a', 0.18, 0.7);
+
+  // label near user point
+  text3([ux, uy+0.12, uz], 'YOU', '#e8831a', 10);
+}
+
+// ═══════════════════════════════════════
+//  INTERACTION
+// ═══════════════════════════════════════
+const wrap = document.getElementById('canvas-wrap');
+
+wrap.addEventListener('mousedown', e => { dragging=true; lastMX=e.clientX; lastMY=e.clientY; });
+window.addEventListener('mouseup', () => dragging=false);
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  rotY += (e.clientX - lastMX) * .01;
+  rotX += (e.clientY - lastMY) * .008;
+  lastMX=e.clientX; lastMY=e.clientY;
+  draw();
+});
+wrap.addEventListener('wheel', e => {
+  zoom *= e.deltaY > 0 ? .93 : 1.07;
+  zoom = Math.max(.4, Math.min(2.5, zoom));
+  draw();
+  e.preventDefault();
+}, {passive:false});
+
+// touch
+let lt = null;
+wrap.addEventListener('touchstart', e => { lt = e.touches[0]; });
+wrap.addEventListener('touchmove', e => {
+  if (!lt) return;
+  rotY += (e.touches[0].clientX - lt.clientX) * .012;
+  rotX += (e.touches[0].clientY - lt.clientY) * .010;
+  lt = e.touches[0];
+  draw();
+  e.preventDefault();
+}, {passive:false});
+
+function jumpToOctant(o) {
+  const [sx,sy,sz] = o.signs;
+  document.getElementById('sx').value = sx * 75;
+  document.getElementById('sy').value = sy * 75;
+  document.getElementById('sz').value = sz * 75;
+  update();
+}
+
+// ═══════════════════════════════════════
+//  UPDATE
+// ═══════════════════════════════════════
+function update() {
+  const x = parseInt(document.getElementById('sx').value) / 100;
+  const y = parseInt(document.getElementById('sy').value) / 100;
+  const z = parseInt(document.getElementById('sz').value) / 100;
+  document.getElementById('vx').textContent = (x>=0?'+':'')+x.toFixed(2);
+  document.getElementById('vy').textContent = (y>=0?'+':'')+y.toFixed(2);
+  document.getElementById('vz').textContent = (z>=0?'+':'')+z.toFixed(2);
+  curPt = [x * 0.72, y * 0.72, z * 0.72];
+
+  const oct = currentOctant();
+  document.getElementById('rtype').textContent = oct.name;
+  document.getElementById('rcoords').textContent =
+    `x:${(x>=0?'+':'')+x.toFixed(2)}  y:${(y>=0?'+':'')+y.toFixed(2)}  z:${(z>=0?'+':'')+z.toFixed(2)}`;
+  document.getElementById('rdesc').textContent = oct.desc;
+  document.getElementById('rexamples').textContent = oct.examples;
+
+  // highlight octant cell
+  OCTANTS.forEach(o => document.getElementById(`oc${o.id}`)?.classList.remove('active'));
+  document.getElementById(`oc${oct.id}`)?.classList.add('active');
+
+  draw();
+}
+
+// init
+resize();
+update();
+
+// auto-rotate on load
+let autoRot = requestAnimationFrame(function ar() {
+  rotY -= .003;
+  draw();
+  const id = requestAnimationFrame(ar);
+  wrap.addEventListener('mousedown', () => cancelAnimationFrame(id), {once:true});
+  wrap.addEventListener('touchstart', () => cancelAnimationFrame(id), {once:true});
+});
+</script>
+</body>
+</html>
